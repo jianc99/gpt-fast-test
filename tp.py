@@ -107,7 +107,7 @@ def _apply_tp_linear(linear: nn.Linear, style: str, weight_splits: List[int] = [
     # assert linear.weight.shape == (linear.out_features, linear.in_features)
 
 
-def _apply_tp_ffn(mlp: FeedForward) -> None:
+def _apply_tp_ffn(mlp: FeedForward, group) -> None:
     assert hasattr(mlp, "w1")
     assert hasattr(mlp, "w3")
     assert hasattr(mlp, "w2")
@@ -118,10 +118,10 @@ def _apply_tp_ffn(mlp: FeedForward) -> None:
 
     world_size = _get_world_size()
     mlp.register_forward_hook(lambda _module, _input, output: funcol.all_reduce(
-        output, "sum", list(range(world_size))))
+        output, "sum", group))
 
 
-def _apply_tp_attn(attn: Attention) -> None:
+def _apply_tp_attn(attn: Attention, group) -> None:
     assert hasattr(attn, "wqkv")
     assert hasattr(attn, "wo")
 
@@ -137,7 +137,7 @@ def _apply_tp_attn(attn: Attention) -> None:
     attn.n_local_heads = attn.n_local_heads // world_size
 
     attn.register_forward_hook(lambda _module, _input, output: funcol.all_reduce(
-        output[0], "sum", list(range(world_size))))
+        output[0], "sum", group))
 
 
 def _apply_tp_Transformer(Transformer: Transformer) -> None:
@@ -150,7 +150,9 @@ def _apply_tp_Transformer(Transformer: Transformer) -> None:
 
 def apply_tp(model: Transformer) -> None:
     _apply_tp_Transformer(model)
+    world_size = _get_world_size()
+    group = dist.new_group(list(range(world_size)))
     for block in model.layers:
         # Apply to MLP
-        _apply_tp_ffn(block.feed_forward)
-        _apply_tp_attn(block.attention)
+        _apply_tp_ffn(block.feed_forward, group)
+        _apply_tp_attn(block.attention, group)
