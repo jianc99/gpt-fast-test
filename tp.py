@@ -107,7 +107,7 @@ def _apply_tp_linear(linear: nn.Linear, style: str, weight_splits: List[int] = [
     # assert linear.weight.shape == (linear.out_features, linear.in_features)
 
 
-def _apply_tp_ffn(mlp: FeedForward, group) -> None:
+def _apply_tp_ffn(mlp: FeedForward) -> None:
     assert hasattr(mlp, "w1")
     assert hasattr(mlp, "w3")
     assert hasattr(mlp, "w2")
@@ -116,13 +116,12 @@ def _apply_tp_ffn(mlp: FeedForward, group) -> None:
     _apply_tp_linear(mlp.w3, "colwise")
     _apply_tp_linear(mlp.w2, "rowwise")
 
-    # world_size = _get_world_size()
-    mlp.group = group
-    # mlp.register_forward_hook(lambda _module, _input, output: funcol.all_reduce(
-    #     output, "sum", group))
+    world_size = _get_world_size()
+    mlp.register_forward_hook(lambda _module, _input, output: funcol.all_reduce(
+        output, "sum", list(range(world_size))))
 
 
-def _apply_tp_attn(attn: Attention, group) -> None:
+def _apply_tp_attn(attn: Attention) -> None:
     assert hasattr(attn, "wqkv")
     assert hasattr(attn, "wo")
 
@@ -136,10 +135,9 @@ def _apply_tp_attn(attn: Attention, group) -> None:
     attn.dim = attn.dim // world_size
     attn.head_dim = attn.dim // attn.n_head
     attn.n_local_heads = attn.n_local_heads // world_size
-    attn.group = group
 
-    # attn.register_forward_hook(lambda _module, _input, output: funcol.all_reduce(
-    #     output[0], "sum", group))
+    attn.register_forward_hook(lambda _module, _input, output: funcol.all_reduce(
+        output[0], "sum", list(range(world_size))))
 
 
 def _apply_tp_Transformer(Transformer: Transformer) -> None:
@@ -152,10 +150,7 @@ def _apply_tp_Transformer(Transformer: Transformer) -> None:
 
 def apply_tp(model: Transformer) -> None:
     _apply_tp_Transformer(model)
-    world_size = _get_world_size()
-    # group = dist.new_group(list(range(world_size)))
-    group = dist.group.WORLD
     for block in model.layers:
         # Apply to MLP
-        _apply_tp_ffn(block.feed_forward, group)
-        _apply_tp_attn(block.attention, group)
+        _apply_tp_ffn(block.feed_forward)
+        _apply_tp_attn(block.attention)
