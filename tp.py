@@ -116,9 +116,10 @@ def _apply_tp_ffn(mlp: FeedForward, group) -> None:
     _apply_tp_linear(mlp.w3, "colwise")
     _apply_tp_linear(mlp.w2, "rowwise")
 
-    world_size = _get_world_size()
-    mlp.register_forward_hook(lambda _module, _input, output: funcol.all_reduce(
-        output, "sum", group))
+    # world_size = _get_world_size()
+    mlp.group = group
+    # mlp.register_forward_hook(lambda _module, _input, output: funcol.all_reduce(
+    #     output, "sum", group))
 
 
 def _apply_tp_attn(attn: Attention, group) -> None:
@@ -135,9 +136,10 @@ def _apply_tp_attn(attn: Attention, group) -> None:
     attn.dim = attn.dim // world_size
     attn.head_dim = attn.dim // attn.n_head
     attn.n_local_heads = attn.n_local_heads // world_size
+    attn.group = group
 
-    attn.register_forward_hook(lambda _module, _input, output: funcol.all_reduce(
-        output[0], "sum", group))
+    # attn.register_forward_hook(lambda _module, _input, output: funcol.all_reduce(
+    #     output[0], "sum", group))
 
 
 def _apply_tp_Transformer(Transformer: Transformer) -> None:
@@ -151,7 +153,8 @@ def _apply_tp_Transformer(Transformer: Transformer) -> None:
 def apply_tp(model: Transformer) -> None:
     _apply_tp_Transformer(model)
     world_size = _get_world_size()
-    group = dist.new_group(list(range(world_size)))
+    # group = dist.new_group(list(range(world_size)))
+    group = dist.group.WORLD
     for block in model.layers:
         # Apply to MLP
         _apply_tp_ffn(block.feed_forward, group)
